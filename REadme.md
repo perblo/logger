@@ -6,7 +6,4 @@ consumption etc. based on a Arduino Ethernet.
 
 Dependencies 
 -----------
-[DHT22p](http://https://github.com/perblo/DHT22p)
-
-
-
+[DHT22p](https://github.com/perblo/DHT22p)

@@ -2,13 +2,11 @@
 /*
   loplogger
  
- Logger för temp och fukt på storgatan 69
+ Logger för temp och fukt 
  
+ Ext irq för energimätning
+ Pin 2 (irq 0)
  
- Circuit:
- Väderstation inkopplad på serieporten 
- Pin 0: RX 
- Pin 1: TX 
  Ethernetmodul 
  Pin 10: 
  Pin 11:
@@ -91,23 +89,24 @@ EthernetClient storageServerClient;
 
 
 // timer inställning
-int counter_4_s=0;
-boolean time_to_sample;
-boolean time_to_save;
-byte samples=0;
-unsigned long time = 0;
+volatile int counter_4_s=0;
+volatile boolean time_to_sample;
+volatile boolean time_to_save;
+volatile byte samples=0;
+volatile unsigned long time = 0;
 int minutes = 0;
 
-//float t_vec[14];
-//float h_vec[14];
-int t_sum[4];
-int t_avg[4];
 
-unsigned int h_sum[4];
-unsigned int h_avg[4];
+volatile int t_sum[4];
+volatile int t_avg[4];
+
+volatile unsigned int h_sum[4];
+volatile unsigned int h_avg[4];
 String dataString;
 byte active_sensors;
 
+volatile unsigned int e_sum = 0;
+volatile unsigned int e_counter = 0 ;
 
 ISR(TIMER1_OVF_vect) {
   //timer med en periodtid på 4 s
@@ -127,6 +126,8 @@ ISR(TIMER1_OVF_vect) {
     time_to_save=HIGH;
     samples=0;
     minutes++;
+    e_sum= e_counter;
+    e_counter = 0;
 
   } 
   else if ((counter_4_s & 0x1F) == 0x1F){  // 0x1F är 5 ettor längst till höger match på   31 63 95 127, dvs jämt utspridda till 150 s
@@ -185,7 +186,13 @@ void setup() {
   TCCR1A = 0x00; // normal operation page 148 (mode0);
   TCNT1=0x0BDC; // set initial value to remove time error (16bit counter register)
   TCCR1B = 0x05; // start timer/ set clock
+  
+  
+  pinMode(2, INPUT_PULLUP);         
+  attachInterrupt(0, e_blink, FALLING);
+  
   Serial.println("init ok");
+  
 
 }
 
@@ -206,7 +213,9 @@ void loop() {
     //print_t_and_h();
     //Serial.println("saving to sd-card");
     save_to_file();
-    transfer_data();
+    transfer_data(0);
+    transfer_data(1);
+    transfer_data(2);
   
   /*if (minutes == 600) {
     //stäng av irq 
@@ -226,68 +235,12 @@ void loop() {
   }
 }
 
+void e_blink() {
+  e_counter++;
+}
 
 
 
-///////////////////////////////////////////
-//
-// MISC FUNCTIONS//  
-
-/*
-void listenForClients() {
-  // listen for incoming clients
-  EthernetClient client = server.available();
-  if (client) {
-    Serial.println("Got a client");
-    // an http request ends with a blank line
-    boolean currentLineIsBlank = true;
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        // if you've gotten to the end of the line (received a newline
-        // character) and the line is blank, the http request has ended,
-        // so you can send a reply
-        if (c == '\n' && currentLineIsBlank) {
-          // send a standard http response header
-          client.println("HTTP/1.1 200 OK");
-          client.println("Content-Type: text/html");
-          client.println();
-          // print the current readings, in HTML format:
-          //client.println("<br /><br />");
-          client.println("<h3>Storgatan 69 </h3>"); 
-          //client.println("<br />");
-          for (int j=0;j<4;j++){
-            client.print("<p>Temperatur:    ");
-            client.print(t_avg[j]);
-            client.print(" &deg;C</p>");
-            //client.println("<br />");
-            client.print("<p>Luftfuktighet: ");
-            client.print(h_avg[j]);
-            client.print(" %</p>");
-          }
-          //client.println("<br />");  
-          break;
-        }
-        if (c == '\n') {
-          // you're starting a new line
-          currentLineIsBlank = true;
-        } 
-        else if (c != '\r') {
-          // you've gotten a character on the current line
-          currentLineIsBlank = false;
-        }
-      }
-    }
-    // give the web browser time to receive the data
-    delay(1);
-    // close the connection:
-    client.stop();
-  }
-} 
-
-
-
-*/
 
 void check_sensors() {
   // Reading temperature or humidity takes about 250 milliseconds!
@@ -347,25 +300,7 @@ void read_t_and_h() {
 }
 
 
-/*
-void print_t_and_h() {
 
-  Serial.println(" *");
-  Serial.println(time);
-  for (int l=0;l<4;l++){
-    Serial.print(l);
-    Serial.print(" - Humi: "); 
-    Serial.print(h_avg[l]);
-    Serial.print(" %\t");
-    Serial.print("Temp: "); 
-    Serial.print(t_avg[l]);
-    Serial.println(" *C");
-     
-  }
-  Serial.println(" *");
-}  
-
-*/
 
 
 void save_to_file() {
@@ -373,7 +308,7 @@ void save_to_file() {
   File dataFile = SD.open("loplogg.txt", FILE_WRITE);
   if (dataFile) {
     char datastr[50];
-    sprintf(datastr, "%lu,%4i,%4i,%4i,%4i,%4i,%4i,%4i,%4i ", time,t_avg[0],t_avg[1],t_avg[2],t_avg[3],h_avg[0],h_avg[1],h_avg[2],h_avg[3]);
+    sprintf(datastr, "%lu,%4i,%4i,%4i,%4i,%4i,%4i,%4i,%4i,%5i ", time,t_avg[0],t_avg[1],t_avg[2],t_avg[3],h_avg[0],h_avg[1],h_avg[2],h_avg[3],e_sum);
     dataFile.println(datastr);    
     dataFile.close();
     Serial.println(datastr);
@@ -423,7 +358,7 @@ unsigned long get_npt_time() {
     
   }
 }
-
+    
 
 /*void PrintDateTime(DateTime t)
 {
@@ -458,7 +393,7 @@ unsigned long sendNTPpacket(IPAddress address)
 }
 
 
-void transfer_data(){
+void transfer_data(byte set){
   String www = "www";
   String err = " err";
   Serial.print(www);
@@ -466,12 +401,14 @@ void transfer_data(){
   if (storageServerClient.connect(storageServer, 80)) {
     //Serial.println("ected");
     char getstr[105];   // 24+10+8x(4+5)+1=105   24+10+4x(4+5)+1=71 
-    /*if ( data == 0 ) {
+    if ( set == 0 ) {
       sprintf(getstr, "GET /update_db.php?Time=%lu&T1=%i&T2=%i&T3=%i&T4=%i ", time,t_avg[0],t_avg[1],t_avg[2],t_avg[3]);
-    } else if (data == 1) {
+    } else if (set == 1) {
       sprintf(getstr, "GET /update_db.php?Time=%lu&H1=%i&H2=%i&H3=%i&H4=%i ", time,h_avg[0],h_avg[1],h_avg[2],h_avg[3]);
-    }*/
-    sprintf(getstr, "GET /update_db.php?Time=%lu&T1=%i&T2=%i&T3=%i&T4=%i&H1=%i&H2=%i&H3=%i&H4=%i ", time,t_avg[0],t_avg[1],t_avg[2],t_avg[3],h_avg[0],h_avg[1],h_avg[2],h_avg[3]);
+    } else if (set == 2) {
+      sprintf(getstr, "GET /update_db.php?Time=%lu&E=%i ", time,e_sum);
+    }
+    //sprintf(getstr, "GET /update_db.php?Time=%lu&T1=%i&T2=%i&T3=%i&T4=%i&H1=%i&H2=%i&H3=%i&H4=%i ", time,t_avg[0],t_avg[1],t_avg[2],t_avg[3],h_avg[0],h_avg[1],h_avg[2],h_avg[3]);
     storageServerClient.println(getstr);
     storageServerClient.println();
     

@@ -117,7 +117,7 @@ ISR(TIMER1_OVF_vect) {
   time+=4;
   if (counter_4_s==150) {  // 150 = var tionde minut
     for (int j=0;j<4;j++){
-      t_avg[j]=t_sum[j]/samples;  // obs borde kanske slänga in någon felkoll här, har vi missat att sampla 4 gånger i rad så kan vi få division med 0 här
+      t_avg[j]=t_sum[j]/samples;  
       h_avg[j]=h_sum[j]/samples;
       t_sum[j]=0;
       h_sum[j]=0;
@@ -130,7 +130,7 @@ ISR(TIMER1_OVF_vect) {
     e_counter = 0;
 
   } 
-  else if ((counter_4_s & 0x1F) == 0x1F){  // 0x1F är 5 ettor längst till höger match på   31 63 95 127, dvs jämt utspridda till 150 s
+  else if ((counter_4_s & 0x1F) == 0x1F){  // 0x1F är 5 ettor längst till höger match på   31 63 95 127, dvs 4 st jämt utspridda till 150 s
     time_to_sample=HIGH;    
   } 
 }
@@ -141,6 +141,7 @@ void setup() {
   Serial.begin(9600);
   SPI.begin();
   Serial.println("logger");
+
 
   Serial.print("SD");
   pinMode(10, OUTPUT);
@@ -267,8 +268,8 @@ void check_sensors() {
 void read_t_and_h() {
   // Reading temperature or humidity takes about 250 milliseconds!
   // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-  double h[4];
-  double t[4];
+  int h[4];
+  int t[4];
   DHT22p_ERROR_t errorCode;
   boolean readingValid=true;
   
@@ -279,6 +280,8 @@ void read_t_and_h() {
         h[i] = dht[i].humidity;
         t[i] = dht[i].temperature;
       } else {
+        Serial.print("F DHT:");
+        Serial.println(i);
         readingValid=false;
       }
     }
@@ -287,8 +290,8 @@ void read_t_and_h() {
   // check if returns are valid, if they are NaN (not a number) then something went wrong!
   if (readingValid) {
     for (int k=0;k<4;k++){
-      t_sum[k]=t_sum[k]+int(t[k]*100);
-      h_sum[k]=h_sum[k]+int(h[k]*100);
+      t_sum[k]=t_sum[k]+t[k];
+      h_sum[k]=h_sum[k]+h[k];
     }
     samples++;
   
@@ -307,8 +310,8 @@ void save_to_file() {
   
   File dataFile = SD.open("loplogg.txt", FILE_WRITE);
   if (dataFile) {
-    char datastr[50];
-    sprintf(datastr, "%lu,%4i,%4i,%4i,%4i,%4i,%4i,%4i,%4i,%5i ", time,t_avg[0],t_avg[1],t_avg[2],t_avg[3],h_avg[0],h_avg[1],h_avg[2],h_avg[3],e_sum);
+    char datastr[54];
+    sprintf(datastr, "%lu,%i,%i,%i,%i,%i,%i,%i,%i,%i ", time,t_avg[0],t_avg[1],t_avg[2],t_avg[3],h_avg[0],h_avg[1],h_avg[2],h_avg[3],e_sum);
     dataFile.println(datastr);    
     dataFile.close();
     Serial.println(datastr);
@@ -400,7 +403,7 @@ void transfer_data(byte set){
   
   if (storageServerClient.connect(storageServer, 80)) {
     //Serial.println("ected");
-    char getstr[105];   // 24+10+8x(4+5)+1=105   24+10+4x(4+5)+1=71 
+    char getstr[75];   // 24+10+8x(4+5)+1=105   24+10+4x(5+5)+1=75 
     if ( set == 0 ) {
       sprintf(getstr, "GET /update_db.php?Time=%lu&T1=%i&T2=%i&T3=%i&T4=%i ", time,t_avg[0],t_avg[1],t_avg[2],t_avg[3]);
     } else if (set == 1) {

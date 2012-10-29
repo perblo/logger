@@ -2,7 +2,7 @@
 <html>
  <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Temperaturer på stogatan 69</title>
+    <title>Temperaturer</title>
     <link href="layout.css" rel="stylesheet" type="text/css"></link>
     <!--[if IE]><script language="javascript" type="text/javascript" src="flot/excanvas.min.js"></script><![endif]-->
     <script language="javascript" type="text/javascript" src="flot/jquery.js"></script>
@@ -14,6 +14,9 @@
 
     <?php
 
+$dateTimeZoneStockholm = new DateTimeZone("Europe/Stockholm");
+$dateTimeStockholm = new DateTime("now", $dateTimeZoneStockholm);
+$GmtOffset=$dateTimeZoneStockholm->getOffset($dateTimeStockholm);
 
 
 $mysqli = new mysqli("localhost", "username", "password", "database");
@@ -28,18 +31,15 @@ while($row = mysqli_fetch_array($result)) {
 
  // -6*3600 på tider som är tidigare än 1327960800
  // java använder ms ifrån 1 jan 1970 därav multiplikation med 1000
-  $t1[] = array( 1000*($row['Time']+60*60), $row['t1'] );
+  $t1[] = array( 1000*($row['Time']+$GmtOffset), $row['t1'] );
   $last_t1=$row['t1'];
-  $t2[] = array( 1000*($row['Time']+60*60), $row['t2'] );
+  $t2[] = array( 1000*($row['Time']+$GmtOffset), $row['t2'] );
   $last_t2=$row['t2'];
-  $t3[] = array( 1000*($row['Time']+60*60), $row['t3'] );
-  $t4[] = array( 1000*($row['Time']+60*60), $row['t4'] );
+  $t3[] = array( 1000*($row['Time']+$GmtOffset), $row['t3'] );
+  $t4[] = array( 1000*($row['Time']+$GmtOffset), $row['t4'] );
 }
 
 $result = $mysqli->query("select * from Humidity WHERE Time>" . $start_time ." order by Time");
-
-
-
 while($row = mysqli_fetch_array($result)) {
  	
  	if ($row['h1'] < 0) {
@@ -48,13 +48,36 @@ while($row = mysqli_fetch_array($result)) {
     } 
  // -6*3600 på tider som är tidigare än 1327960800
  // java använder ms ifrån 1 jan 1970 därav multiplikation med 1000
-  $h1[] = array( 1000*($row['Time']+60*60), $row['h1'] );
+  $h1[] = array( 1000*($row['Time']+$GmtOffset), $row['h1'] );
    $last_h1=$row['h1'];
-  $h2[] = array( 1000*($row['Time']+60*60), $row['h2'] );
+  $h2[] = array( 1000*($row['Time']+$GmtOffset), $row['h2'] );
    $last_h2=$row['h2'];
-  $h3[] = array( 1000*($row['Time']+60*60), abs($row['h3']) );
-  $h4[] = array( 1000*($row['Time']+60*60), abs($row['h4']) );
+  $h3[] = array( 1000*($row['Time']+$GmtOffset), abs($row['h3']) );
+  $h4[] = array( 1000*($row['Time']+$GmtOffset), abs($row['h4']) );
 }
+
+
+$result = $mysqli->query("select * from Energy WHERE Time>" . $start_time ." order by Time DESC");
+
+$counter=0;
+$sum=0;
+
+while($row = mysqli_fetch_array($result)) {
+
+  $sum+=$row['E'];
+  $counter++;
+  if ($counter==3) $midtime=1000*($row['Time']+$GmtOffset);
+  if ($counter==6) {
+    $counter = 0;
+    $e1[] = array( $midtime , $sum/1000 );
+    $sum=0;
+  } 
+	
+ // -6*3600 på tider som är tidigare än 1327960800
+ // java använder ms ifrån 1 jan 1970 därav multiplikation med 1000
+  // E är wh / 10 min så gånger 6/1000 borde bli kWh/h = kW
+}
+
 
 
 ?>
@@ -123,6 +146,7 @@ $(function () {
 
 	var datasets = {
 		"t1" : {
+		lines: { show: true, width: 1 },
 			label : "Temperatur utomhus",
 			data: <?php echo json_encode($t1); ?> 
 		},
@@ -149,6 +173,12 @@ $(function () {
 			data: <?php echo json_encode($h4); ?>,
 			yaxis: 2 
 		},
+		"e1" : {
+		bars: { show: true },
+			label : "Energiförbruking",
+			data: <?php echo json_encode($e1); ?>,
+			yaxis: 3
+		},
 		
 	};
 	var enabled = {
@@ -157,24 +187,12 @@ $(function () {
 		"t4" : false,
 		"h1" : true,
 		"h2" : false,
-		"h4" : false
+		"h4" : false,
+		"e1" : true
 	};
 	var timerange = 60*60*24*7;
 	document.getElementById("week").disabled = true;
-    /*
-<?
-function plotproperties($min="set"){
-if ($min!="set") $minproperty = ", min: ".(time()-$min)*1000;
-echo "{ points: { show: false, radius: 1},
-            lines: { show: true, width: 1 },
-               xaxes: [ { mode: 'time'".$minproperty."  } ],
-               yaxes: [ {min: -25, max: 35, tickFormatter: function (v) { return v + \" &degC\"; } },
-               { min:0, max: 100, position: \"right\", tickFormatter: function (v) { return v + \" %\"; }} ],
-               legend: { position: 'sw'},
-               grid: { hoverable: true }}";
-}
-?>   
-    */
+
     var i = 0;
     $.each(datasets, function(key, val) {
         val.color = i;
@@ -205,11 +223,13 @@ echo "{ points: { show: false, radius: 1},
            var minTime = now.getTime()-timerange*1000
             $.plot($("#placeholder"), data,
             	{
-            		points: { show: false, radius: 1},
-            		lines: { show: true, width: 1 },
+            		        		
                		xaxes: [ { mode: 'time', min: minTime  } ],
-               		yaxes: [ {min: -25, max: 35, tickFormatter: function (v) { return v + " &degC"; } },
-               		{ min:0, max: 100, position: "right", tickFormatter: function (v) { return v + " %"; }} ],
+               		yaxes: [
+               		{ min: -25, max: 35, tickFormatter: function (v) { return v + " &degC"; }},
+               		{ min: 0, max: 100, position: "right", tickFormatter: function (v) { return v + " %"; }},
+               		{ min: 0, max: 10, position: "right", tickFormatter: function (v) { return v + " kWh"; }}
+               		],
                		legend: { position: 'sw'},
                		grid: { hoverable: true }
                	}
